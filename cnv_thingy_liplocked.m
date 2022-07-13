@@ -14,6 +14,7 @@ eeglab;
 
 % Iterate datasets
 elasto_erps = [];
+cnv_amps = [];
 for s = 1 : length(fl)
 
     % Load data
@@ -174,7 +175,7 @@ for s = 1 : length(fl)
                 end
 
                 counter = counter + 1;
-                trialinfo(counter, :) = [blk, NaN, tarpos, cnd, NaN, lat_lip, lat_tone, floor(mod(lat_lip, EEG.pnts)), floor(mod(lat_tone, EEG.pnts)), lat_lip - lat_tone];
+                trialinfo(counter, :) = [blk, NaN, tarpos, cnd, str2num(EEG.event(e).seq), lat_lip, lat_tone, floor(mod(lat_lip, EEG.pnts)), floor(mod(lat_tone, EEG.pnts)), lat_lip - lat_tone];
             end
         end
     end
@@ -189,9 +190,6 @@ for s = 1 : length(fl)
         end
     end
 
-    % Code standard and deviant
-    trialinfo(:, 5) = ~(trialinfo(:, 2) == trialinfo(:, 3));
-
     % Check if number of detected soas matches number of trials in data
     if ~(EEG.trials == size(trialinfo, 1))
         error('\n\nsomething went terribly wrong!!!!!!!!\n\n')
@@ -200,22 +198,43 @@ for s = 1 : length(fl)
     % Electrodes FC1, FCz, FC2, Fz, Cz as cluster
     front_clust_idx = [19, 63, 20, 23, 16];
 
+    % Drop sus trials
+    to_keep = trialinfo(:, 5) <= 1;
+    trialinfo = trialinfo(to_keep, :);
+    eeg_data = double(squeeze(mean(EEG.data(front_clust_idx, :, to_keep), 1)));
+
     % Loop trials and elasto
     n_frames = 300;
-    erp = zeros(EEG.trials, n_frames);
-    for tr = 1 : EEG.trials
+    bl_length = 400;
+    bl_frames = bl_length * (EEG.srate / 1000);
+    erp = zeros(EEG.trials, n_frames + bl_frames);
+    cnv_amps_subject = [];
+    for tr = 1 : size(trialinfo, 1)
 
         % Get data
-        tmp = double(mean(EEG.data(front_clust_idx, trialinfo(tr, 8) : trialinfo(tr, 9), tr), 1));
+        data_original = eeg_data(trialinfo(tr, 8) : trialinfo(tr, 9), tr);
 
-        % Get baseline
-        bl_val = double(mean(mean(EEG.data(front_clust_idx, trialinfo(tr, 8) - 100 : trialinfo(tr, 8), tr), 2), 1));
+        % Get baseline (100 ms)
+        bl_original = eeg_data(trialinfo(tr, 8) - (100 * (EEG.srate / 1000)) : trialinfo(tr, 8) - 1, tr);
+
+        % Get baseline for plotting (400 ms)
+        bl_plot = eeg_data(trialinfo(tr, 8) - bl_frames : trialinfo(tr, 8) - 1, tr);
+
+        % Get baseline average
+        bl_value = mean(bl_original);
+
+        % Get average of 100 ms before audio onset
+        preaudio_value = mean(data_original(end - (100 * (EEG.srate / 1000)) : end));
 
         % Subtract baseline
-        tmp = tmp - bl_val;
+        data_original_baselined = data_original - bl_value;
+        bl_plot_baseline = bl_plot - bl_value;
 
         % Resample single trial erp
-        erp(tr, :) = resample(tmp, n_frames, length(tmp));
+        erp(tr, :) = [bl_plot_baseline; resample(data_original_baselined, n_frames, length(data_original_baselined))];
+
+        % Save start and end values
+        cnv_amps_subject(tr, :) = [bl_value, preaudio_value];
 
     end
 
@@ -223,6 +242,7 @@ for s = 1 : length(fl)
     for cnd = 1 : 3
         for corr = 0 : 1
             elasto_erps(s, cnd, corr + 1, :) = mean(erp(trialinfo(:, 4) == cnd & trialinfo(:, 5) == corr, :), 1);
+            cnv_amps(s, cnd, corr + 1, :) = mean(cnv_amps_subject(trialinfo(:, 4) == cnd & trialinfo(:, 5) == corr, :), 1);
         end
     end
 
@@ -239,14 +259,17 @@ for s = 1 : length(fl)
     % Loop conditions
     for cnd = 1 : 3
         for corr = 0 : 1
-            for win = 1 : 60 : 300
+            for win = 1 : 2
+
+                counter = counter + 1;
 
                 % Mena amplitudes
-                cnv_amp = mean(squeeze(elasto_erps(s, cnd, corr + 1, win : win + 59)));
+                %cnv_amp = mean(squeeze(elasto_erps(s, cnd, corr + 1, win : win + 59)));
 
                 % Save to matrix
-                counter = counter + 1;
-                cnv_amplitudes(counter, :) = [id, cnd, corr, ceil(win / 60), cnv_amp];
+                %cnv_amplitudes(counter, :) = [id, cnd, corr, ceil(win / 60), cnv_amp];
+
+                cnv_amplitudes(counter, :) = [id, cnd, corr, win, cnv_amps(s, cnd, corr + 1, win)];
 
             end
         end
@@ -257,7 +280,7 @@ end
 dlmwrite([PATH_CLEANED, 'cnv_amplitudes.csv'], cnv_amplitudes);
 
 figure()
-subplot(1, 2, 1)
+subplot(2, 2, 1)
 pd = squeeze(mean(elasto_erps(:, 1, 1, :), 1))
 plot(pd, 'r', 'LineWidth', 2)
 hold on
@@ -266,8 +289,9 @@ plot(pd, 'g', 'LineWidth', 2)
 pd = squeeze(mean(elasto_erps(:, 3, 1, :), 1))
 plot(pd, 'k', 'LineWidth', 2)
 title('standard')
+xline(bl_frames)
 
-subplot(1, 2, 2)
+subplot(2, 2, 2)
 pd = squeeze(mean(elasto_erps(:, 1, 2, :), 1))
 plot(pd, 'r', 'LineWidth', 2)
 hold on
@@ -277,8 +301,56 @@ pd = squeeze(mean(elasto_erps(:, 3, 2, :), 1))
 plot(pd, 'k', 'LineWidth', 2)
 legend({'both', 'visu', 'audi'})
 title('deviant')
+xline(bl_frames)
 
+subplot(2, 2, 3)
+pd = squeeze(mean(cnv_amps(:, 1, 1, :), 1))
+plot(pd, 'r', 'LineWidth', 2)
+hold on
+pd = squeeze(mean(cnv_amps(:, 2, 1, :), 1))
+plot(pd, 'g', 'LineWidth', 2)
+pd = squeeze(mean(cnv_amps(:, 3, 1, :), 1))
+plot(pd, 'k', 'LineWidth', 2)
+title('standard')
+    
+subplot(2, 2, 4)
+pd = squeeze(mean(cnv_amps(:, 1, 2, :), 1))
+plot(pd, 'r', 'LineWidth', 2)
+hold on
+pd = squeeze(mean(cnv_amps(:, 2, 2, :), 1))
+plot(pd, 'g', 'LineWidth', 2)
+pd = squeeze(mean(cnv_amps(:, 3, 2, :), 1))
+plot(pd, 'k', 'LineWidth', 2)
+legend({'both', 'visu', 'audi'})
+title('deviant')
+    
+    
 
-    
-    
-    
+figure()
+subplot(2, 2, 1)
+pd = squeeze(mean(elasto_erps(:, 1, 1, :), 1))
+plot(pd, 'k', 'LineWidth', 2)
+hold on
+pd = squeeze(mean(elasto_erps(:, 1, 2, :), 1))
+plot(pd, 'm', 'LineWidth', 2)
+title('both')
+xline(bl_frames)
+
+subplot(2, 2, 2)
+pd = squeeze(mean(elasto_erps(:, 2, 1, :), 1))
+plot(pd, 'k', 'LineWidth', 2)
+hold on
+pd = squeeze(mean(elasto_erps(:, 2, 2, :), 1))
+plot(pd, 'm', 'LineWidth', 2)
+title('visu')
+legend({'std', 'dev'})
+xline(bl_frames)
+
+subplot(2, 2, 3)
+pd = squeeze(mean(elasto_erps(:, 3, 1, :), 1))
+plot(pd, 'k', 'LineWidth', 2)
+hold on
+pd = squeeze(mean(elasto_erps(:, 3, 2, :), 1))
+plot(pd, 'm', 'LineWidth', 2)
+title('audi')
+xline(bl_frames)
