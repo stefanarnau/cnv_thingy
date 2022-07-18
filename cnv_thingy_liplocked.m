@@ -88,66 +88,52 @@ for s = 1 : length(fl)
         % find S_Tr_3
         if strcmp(EEG.event(e).oldtype, 'S_Tr_3')
 
-            % if Avu, take latency from 2 lines before (check if S_Tr_1)
-            % check which speaker
+            % If Bianca, add 67 frames = 1340ms
             if strcmp(EEG.event(e).Av, 'Avu') && strcmp(EEG.event(e).speak, 'Bianca')
-
-                if strcmp(EEG.event(e - 2).oldtype,  'S_Tr_1')
-                    % overwrite latency
-                    % onset lip movement: 67 frames = 1340ms
-                    EEG.event(e).latency = EEG.event(e - 2).latency + (1340 / (1000 / EEG.srate));
-                elseif strcmp(EEG.event(e - 3).oldtype,  'S_Tr_1')
-                    % overwrite latency
-                    % onset lip movement: 67 frames = 1340ms
-                    EEG.event(e).latency = EEG.event(e - 3).latency + (1340 / (1000 / EEG.srate));
-                elseif strcmp(EEG.event(e - 4).oldtype,  'S_Tr_1')
-                    % overwrite latency
-                    % onset lip movement: 67 frames = 1340ms
-                    EEG.event(e).latency = EEG.event(e - 4).latency + (1340 / (1000 / EEG.srate));
-                else
-                    error('did not find Trigger 1 here')                    
+                f = e;
+                while ~strcmp(EEG.event(f).oldtype, 'S_Tr_1')
+                    f = f - 1;
                 end
+                EEG.event(f).latency = EEG.event(f).latency + (1340 / (1000 / EEG.srate));
 
+            % If Kim, add 42 frames = 840ms
             elseif strcmp(EEG.event(e).Av, 'Avu') && strcmp(EEG.event(e).speak, 'Kim')
-
-                if strcmp(EEG.event(e - 2).oldtype,  'S_Tr_1')
-                    % overwrite latency
-                    % onset lip movement: 42 frames = 840ms
-                    EEG.event(e).latency = EEG.event(e - 2).latency + (840 / (1000 / EEG.srate));
-                elseif strcmp(EEG.event(e - 3).oldtype,  'S_Tr_1')
-                    % overwrite latency
-                    % onset lip movement: 42 frames = 840ms
-                    EEG.event(e).latency = EEG.event(e - 3).latency + (840 / (1000 / EEG.srate));
-                elseif strcmp(EEG.event(e - 4).oldtype,  'S_Tr_1')
-                    % overwrite latency
-                    % onset lip movement: 42 frames = 840ms
-                    EEG.event(e).latency = EEG.event(e - 4).latency + (840 / (1000 / EEG.srate));
-                else
-                    error('did not find Trigger 1 here')
+                f = e;
+                while ~strcmp(EEG.event(f).oldtype, 'S_Tr_1')
+                    f = f - 1;
                 end
+                EEG.event(f).latency = EEG.event(f).latency + (840 / (1000 / EEG.srate));
             end
         end
     end
 
     % Get SOAs for trials
+    n_mismatch = 0;
     trialinfo = [];
     counter = 0;
     old_cnd = '';
     blk = 0;
     for e = 1 : length(EEG.event)
 
-        % If liponset
-        if strcmpi(EEG.event(e).type, '3')
+        % If tone onset
+        if strcmpi(EEG.event(e).type, '4')
+
+            % Check if std or dev
+            if strcmpi(EEG.event(e).seq, '1')
+                trgt = '33';
+            else
+                trgt = '3';
+            end
 
             % Loop for tone onset
             f = e;
-            while ~strcmpi(EEG.event(f).type, '4')
-                f = f + 1;
+            while ~strcmpi(EEG.event(f).type, trgt) | ~(EEG.event(e).trial ==  EEG.event(f).trial)
+                f = f - 1;
             end
 
             % Get latencies
-            lat_lip = EEG.event(e).latency;
-            lat_tone = EEG.event(f).latency;
+            lat_lip = EEG.event(f).latency;
+            lat_tone = EEG.event(e).latency;
 
             % Save trial info
             if EEG.event(e).trial ==  EEG.event(f).trial
@@ -176,6 +162,10 @@ for s = 1 : length(fl)
 
                 counter = counter + 1;
                 trialinfo(counter, :) = [blk, NaN, tarpos, cnd, str2num(EEG.event(e).seq), lat_lip, lat_tone, floor(mod(lat_lip, EEG.pnts)), floor(mod(lat_tone, EEG.pnts)), lat_lip - lat_tone];
+
+            else
+                n_mismatch = n_mismatch + 1;
+                e
             end
         end
     end
